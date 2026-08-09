@@ -2,19 +2,16 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from functools import wraps, partial, reduce
+import functools
 from itertools import islice
-from typing import TYPE_CHECKING
+from typing import Any, Callable, Iterable, ParamSpec, TypeVar
 
-if TYPE_CHECKING:
-    from typing import Any, Callable, Iterable, ParamSpec, TypeVar
+# Type variables used across decorators in this module.
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_T = TypeVar("_T")
 
-    # Type variables used across decorators in this module.
-    _P = ParamSpec("_P")
-    _R = TypeVar("_R")
-    _T = TypeVar("_T")
-
-__version__: str = "dev5"
+__version__: str = "dev6"
 
 def once(func: Callable[_P, _R]) -> Callable[_P, _R]:
     """Decorate a callable so that it executes at most once.
@@ -183,12 +180,12 @@ def pass_param(
         >>> show_guarded(sentinel)
         'missing'
     """
-    @wraps(func)
+    @functools.wraps(func)  # type: ignore[attr-defined, untyped-decorator]
     def wrapper(param: Any, /, *args: Any, **kwargs: Any) -> _R | None:
         if param is not validator:
             return func(param, *args, **kwargs)
         return fallback
-    return wrapper
+    return wrapper  # type: ignore[no-any-return]
 
 
 def _consume(iterator: Iterable[Any], i: int | None = None) -> None:
@@ -204,7 +201,7 @@ def _compose(*funcs: Callable[..., Any]) -> Callable[..., Any]:
     ) -> Callable[..., Any]:
         return lambda *args, **kwargs: func1(func2(*args, **kwargs))
 
-    return reduce(compose_two, funcs)
+    return functools.reduce(compose_two, funcs)  # type: ignore[attr-defined, no-any-return]
 
 
 def print_yielded(
@@ -241,9 +238,9 @@ def print_yielded(
         2
         3
     """
-    print_all = partial(map, print)
+    print_all = functools.partial(map, print)  # type: ignore[attr-defined]
     print_res = _compose(_consume, print_all, func)
-    return wraps(func)(print_res)
+    return functools.wraps(func)(print_res)  # type: ignore[attr-defined, no-any-return]
 
 
 
@@ -278,16 +275,16 @@ def memoize(func: Callable[_P, _R]) -> Callable[_P, _R]:
     """
     cache: dict[tuple[Any, frozenset[tuple[str, Any]]], _R] = {}
 
-    @wraps(func)
+    @functools.wraps(func)  # type: ignore[attr-defined, untyped-decorator]
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         key = (args, frozenset(kwargs.items()))
         if key not in cache:
             cache[key] = func(*args, **kwargs)
         return cache[key]
 
-    wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
-    wrapper.cache_info = lambda: {"size": len(cache)}  # type: ignore[attr-defined]
-    return wrapper  # type: ignore[return-value]
+    wrapper.cache_clear = cache.clear
+    wrapper.cache_info = lambda: {"size": len(cache)}
+    return wrapper  # type: ignore[no-any-return]
 
 
 def tap(side_effect: Callable[..., Any] = print) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
@@ -321,13 +318,13 @@ def tap(side_effect: Callable[..., Any] = print) -> Callable[[Callable[_P, _R]],
         5 2 3
     """
     def decorator(func: Callable[_P, _R]) -> Callable[_P, _R]:
-        @wraps(func)
+        @functools.wraps(func)  # type: ignore[attr-defined, untyped-decorator]
         def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
             result = func(*args, **kwargs)
             side_effect(result, *args, **kwargs)
             return result
 
-        return wrapper
+        return wrapper  # type: ignore[no-any-return]
 
     return decorator
 
@@ -365,7 +362,7 @@ def run_sync(
         >>> blocking_fetch()
         42
     """
-    @wraps(coro_func)
+    @functools.wraps(coro_func)  # type: ignore[attr-defined, untyped-decorator]
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
         loop = asyncio.new_event_loop()
         try:
@@ -373,4 +370,4 @@ def run_sync(
         finally:
             loop.close()
 
-    return wrapper
+    return wrapper  # type: ignore[no-any-return]
