@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections import deque
 import functools
 from itertools import islice
-from typing import Any, Callable, Iterable, ParamSpec, TypeVar
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from typing import Any, Callable, Iterable, ParamSpec, TypeVar
 
-__version__: str = "dev4"
+__version__: str = "dev5"
 
 # Type variables used across decorators in this module.
 _P = ParamSpec("_P")
