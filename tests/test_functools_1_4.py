@@ -1,6 +1,6 @@
 import pytest
 
-from aiwonderland.functools import __version__, once, pipe, silent
+from aiwonderland.functools import __version__, once, pass_param, pipe, silent
 
 
 def test_once_executes_function_exactly_once():
@@ -155,3 +155,125 @@ def test_pipe_threads_value_through_each_step():
     pipeline = pipe(record, record, record)
     assert pipeline(0) == 3
     assert seen == [0, 1, 2]
+
+
+def test_pass_param_forwards_non_none_first_argument():
+    @pass_param
+    def upper(s):
+        return s.upper()
+
+    assert upper("hello") == "HELLO"
+
+
+def test_pass_param_returns_none_when_first_argument_is_none():
+    @pass_param
+    def upper(s):
+        return s.upper()
+
+    assert upper(None) is None
+
+
+def test_pass_param_returns_none_without_invoking_func():
+    calls = []
+
+    @pass_param
+    def record(value):
+        calls.append(value)
+        return value
+
+    assert record(None) is None
+    assert calls == []
+
+
+def test_pass_param_forwards_extra_positional_arguments():
+    @pass_param
+    def add(a, b):
+        return a + b
+
+    assert add(3, 4) == 7
+    assert add(None, 4) is None
+
+
+def test_pass_param_forwards_keyword_arguments():
+    @pass_param
+    def configure(name, *, verbose=False):
+        return (name, verbose)
+
+    assert configure("alpha", verbose=True) == ("alpha", True)
+    assert configure(None, verbose=True) is None
+
+
+def test_pass_param_preserves_function_metadata():
+    def my_func(x):
+        """original docstring"""
+
+    wrapped = pass_param(my_func)
+    assert wrapped.__name__ == "my_func"
+    assert wrapped.__doc__ == "original docstring"
+    assert wrapped.__wrapped__ is my_func
+
+
+def test_pass_param_does_not_swallow_truthy_falsy_values():
+    @pass_param
+    def echo(x):
+        return x
+
+    assert echo(0) == 0
+    assert echo("") == ""
+    assert echo(False) is False
+    assert echo([]) == []
+    assert echo(None) is None
+
+
+def test_pass_param_uses_custom_validator_sentinel():
+    sentinel = object()
+
+    def show(value):
+        return ("called", value)
+
+    guarded = pass_param(show, validator=sentinel, fallback="skipped")
+    assert guarded("ok") == ("called", "ok")
+    assert guarded(sentinel) == "skipped"
+
+
+def test_pass_param_validator_uses_identity_not_equality():
+    class Marker:
+        pass
+
+    eq_marker = Marker()
+
+    def show(value):
+        return ("called", value)
+
+    guarded = pass_param(show, validator=eq_marker, fallback="skipped")
+
+    class EqualButNotSame:
+        pass
+
+    other = EqualButNotSame()
+    other.__eq__ = lambda self, other: isinstance(other, Marker)
+
+    assert guarded("not-marker") == ("called", "not-marker")
+
+
+def test_pass_param_fallback_can_be_arbitrary_value():
+    sentinel = "NOPE"
+
+    def add(a, b):
+        return a + b
+
+    guarded = pass_param(add, validator=sentinel, fallback=[0])
+    assert guarded(1, 2) == 3
+    assert guarded(sentinel, 99) == [0]
+
+
+def test_pass_param_validator_does_not_match_equal_value():
+    sentinel_value = 0
+
+    def echo(x):
+        return ("called", x)
+
+    guarded = pass_param(echo, validator=sentinel_value, fallback="skipped")
+    assert guarded(False) == ("called", False)
+    assert guarded(0.0) == ("called", 0.0)
+    assert guarded(sentinel_value) == "skipped"

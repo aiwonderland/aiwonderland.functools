@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import functools
 from typing import Any, Callable, ParamSpec, TypeVar
 
 
-__version__: str = "dev2"
+__version__: str = "dev3"
 
 # Type variables used across decorators in this module.
 _P = ParamSpec("_P")
@@ -120,3 +121,67 @@ def pipe(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
             result = fn(result)
         return result
     return pipeline
+
+
+def pass_param(
+    func: Callable[..., _R | None],
+    validator: Any = None,
+    fallback: _R | None = None,
+) -> Callable[..., _R | None]:
+    """Wrap ``func`` so a sentinel first argument short-circuits to ``fallback``.
+
+    The returned wrapper has the same positional/keyword signature as
+    ``func`` for everything after the first parameter, but inspects the
+    first positional argument before invoking ``func``:
+
+    - If the first positional argument is **not** ``validator`` (compared
+      with ``is``, i.e. identity), the wrapper forwards it (along with any
+      additional positional and keyword arguments) to ``func`` and
+      returns the result.
+    - If the first positional argument **is** ``validator``, the wrapper
+      returns ``fallback`` immediately without invoking ``func``.
+
+    The identity check (``is``) makes the sentinel comparison cheap and
+    unambiguous -- only the exact object passed as ``validator`` triggers
+    the short-circuit. Any other object, including falsy values like
+    ``0``, ``""``, or ``False``, is forwarded normally.
+
+    Args:
+        func: The callable to wrap. It is invoked only when the wrapper's
+            first positional argument is not ``validator``.
+        validator: The sentinel value that triggers the short-circuit
+            when passed as the wrapper's first positional argument.
+            Defaults to ``None``.
+        fallback: The value returned when ``validator`` is passed.
+            Defaults to ``None``.
+
+    Returns:
+        A wrapper with the same metadata as ``func`` (via
+        :func:`functools.wraps`) that returns ``fallback`` when its first
+        positional argument is ``validator``, and otherwise delegates to
+        ``func``.
+
+    Examples:
+        >>> @pass_param
+        ... def upper(s):
+        ...     return s.upper()
+        >>> upper("hello")
+        'HELLO'
+        >>> upper(None) is None
+        True
+
+        >>> sentinel = object()
+        >>> def show(value):
+        ...     return f"value={value}"
+        >>> show_guarded = pass_param(show, validator=sentinel, fallback="missing")
+        >>> show_guarded("ok")
+        'value=ok'
+        >>> show_guarded(sentinel)
+        'missing'
+    """
+    @functools.wraps(func)
+    def wrapper(param: Any, /, *args: Any, **kwargs: Any) -> _R | None:
+        if param is not validator:
+            return func(param, *args, **kwargs)
+        return fallback
+    return wrapper
