@@ -1,6 +1,11 @@
 import pytest
 
-from aiwonderland.functools import __version__, once, pass_param, pipe, silent
+from aiwonderland.functools import (__version__, 
+                                    once, 
+                                    pass_param, 
+                                    pipe, 
+                                    print_yielded, 
+                                    silent)
 
 
 def test_once_executes_function_exactly_once():
@@ -277,3 +282,82 @@ def test_pass_param_validator_does_not_match_equal_value():
     assert guarded(False) == ("called", False)
     assert guarded(0.0) == ("called", 0.0)
     assert guarded(sentinel_value) == "skipped"
+
+
+def test_print_yielded_prints_each_yielded_value(capsys):
+    @print_yielded
+    def gen():
+        yield 1
+        yield 2
+        yield 3
+
+    assert gen() is None
+    out, _ = capsys.readouterr()
+    assert out == "1\n2\n3\n"
+
+
+def test_print_yielded_returns_none(capsys):
+    @print_yielded
+    def empty():
+        if False:
+            yield
+
+    assert empty() is None
+    out, _ = capsys.readouterr()
+    assert out == ""
+
+
+def test_print_yielded_preserves_function_metadata():
+    @print_yielded
+    def my_gen():
+        """original docstring"""
+        yield 1
+
+    assert my_gen.__name__ == "my_gen"
+    assert my_gen.__doc__ == "original docstring"
+    assert my_gen.__wrapped__.__name__ == "my_gen"
+
+
+def test_print_yielded_passes_args_to_wrapped_function(capsys):
+    @print_yielded
+    def gen(n):
+        for i in range(n):
+            yield i * 10
+
+    assert gen(3) is None
+    out, _ = capsys.readouterr()
+    assert out == "0\n10\n20\n"
+
+
+def test_print_yielded_passes_keyword_args(capsys):
+    @print_yielded
+    def gen(*, start, step):
+        yield start
+        yield start + step
+        yield start + step * 2
+
+    assert gen(start=1, step=2) is None
+    out, _ = capsys.readouterr()
+    assert out == "1\n3\n5\n"
+
+
+def test_print_yielded_works_with_non_generator_iterables(capsys):
+    @print_yielded
+    def returns_list():
+        return [10, 20, 30]
+
+    assert returns_list() is None
+    out, _ = capsys.readouterr()
+    assert out == "10\n20\n30\n"
+
+
+def test_print_yielded_drives_side_effects_of_generator(capsys):
+    @print_yielded
+    def side_effect_gen():
+        print("before")
+        yield "middle"
+        print("after")
+
+    side_effect_gen()
+    out, _ = capsys.readouterr()
+    assert out == "before\nmiddle\nafter\n"

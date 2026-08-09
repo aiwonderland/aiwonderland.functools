@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import deque
 import functools
-from typing import Any, Callable, ParamSpec, TypeVar
+from itertools import islice
+from typing import Any, Callable, Iterable, ParamSpec, TypeVar
 
 
-__version__: str = "dev3"
+__version__: str = "dev4"
 
 # Type variables used across decorators in this module.
 _P = ParamSpec("_P")
@@ -185,3 +187,58 @@ def pass_param(
             return func(param, *args, **kwargs)
         return fallback
     return wrapper
+
+
+def _consume(iterator: Iterable[Any], i: int | None = None) -> None:
+    if i is None:
+        deque(iterator, maxlen=0)
+    else:
+        next(islice(iterator, i, i), None)
+
+
+def _compose(*funcs: Callable[..., Any]) -> Callable[..., Any]:
+    def compose_two(
+        func1: Callable[..., Any], func2: Callable[..., Any]
+    ) -> Callable[..., Any]:
+        return lambda *args, **kwargs: func1(func2(*args, **kwargs))
+
+    return functools.reduce(compose_two, funcs)
+
+
+def print_yielded(
+    func: Callable[..., Iterable[Any]],
+) -> Callable[..., None]:
+    """Decorate a generator (or iterable-returning) callable.
+
+    The wrapped callable is invoked, the resulting iterator is forced
+    to completion via :func:`_consume`, and every yielded value is
+    printed via the built-in :func:`print` in the order it is produced.
+    The wrapper itself returns ``None``.
+
+    The original callable's metadata (``__name__``, ``__doc__``, etc.)
+    is preserved via :func:`functools.wraps`, so introspection on the
+    wrapper still points at ``func``.
+
+    Args:
+        func: A callable that returns an iterable (typically a
+            generator) when invoked. Its return value must be iterable;
+            generators are the canonical use case.
+
+    Returns:
+        A wrapper that prints each value produced by ``func(*args,
+        **kwargs)`` and returns ``None``.
+
+    Examples:
+        >>> @print_yielded
+        ... def numbers():
+        ...     yield 1
+        ...     yield 2
+        ...     yield 3
+        >>> numbers()  # doctest: +SKIP
+        1
+        2
+        3
+    """
+    print_all = functools.partial(map, print)
+    print_res = _compose(_consume, print_all, func)
+    return functools.wraps(func)(print_res)
