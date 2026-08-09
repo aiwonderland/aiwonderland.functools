@@ -11,7 +11,7 @@ _P = ParamSpec("_P")
 _R = TypeVar("_R")
 _T = TypeVar("_T")
 
-__version__: str = "dev6"
+__version__: str = "1.0.0"
 
 def once(func: Callable[_P, _R]) -> Callable[_P, _R]:
     """Decorate a callable so that it executes at most once.
