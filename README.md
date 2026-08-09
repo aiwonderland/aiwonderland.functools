@@ -4,7 +4,7 @@
 
 Additional `functools` in the spirit of the standard library's `functools`.
 
-`pip install -e .` to install from a checkout. Python 3.10+. No
+`pip install aiwonderland.functools` to install from a checkout. Python 3.10+. No
 runtime dependencies.
 
 ## `aiwonderland.functools`
