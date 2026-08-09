@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aiwonderland"
+description = "Additional functools in the spirit of the standard library."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["functools", "decorators", "iterators", "async"]
+authors = [
+    { name = "aiwonderland" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+
+[project.urls]
+# Update these once the project is published.
+Homepage = "https://github.com/aiwonderland/aiwonderland.functools"
+Issues = "https://github.com/aiwonderland/aiwonderland.functools/issues"
+
+# ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+# The single source of truth for the version lives in
+# ``aiwonderland/functools/__init__.py`` as ``__version__``. Hatch reads it
+# from there at build time so we never have to keep two places in sync.
+[tool.hatch.version]
+path = "aiwonderland/functools/__init__.py"
+pattern = '__version__:\s*str\s*=\s*"(?P<version>[^"]+)"'
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["aiwonderland/functools"]
+include = ["aiwonderland/functools/py.typed"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "aiwonderland/functools",
+    "tests",
+    "README.md",
+    "LICENSE",
+]
