@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 from collections import deque
-import functools
+from functools import wraps, partial, reduce
 from itertools import islice
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Any, Callable, Iterable, ParamSpec, TypeVar
 
+    # Type variables used across decorators in this module.
+    _P = ParamSpec("_P")
+    _R = TypeVar("_R")
+    _T = TypeVar("_T")
+
 __version__: str = "dev5"
-
-# Type variables used across decorators in this module.
-_P = ParamSpec("_P")
-_R = TypeVar("_R")
-_T = TypeVar("_T")
-
 
 def once(func: Callable[_P, _R]) -> Callable[_P, _R]:
     """Decorate a callable so that it executes at most once.
@@ -183,7 +183,7 @@ def pass_param(
         >>> show_guarded(sentinel)
         'missing'
     """
-    @functools.wraps(func)
+    @wraps(func)
     def wrapper(param: Any, /, *args: Any, **kwargs: Any) -> _R | None:
         if param is not validator:
             return func(param, *args, **kwargs)
@@ -204,7 +204,7 @@ def _compose(*funcs: Callable[..., Any]) -> Callable[..., Any]:
     ) -> Callable[..., Any]:
         return lambda *args, **kwargs: func1(func2(*args, **kwargs))
 
-    return functools.reduce(compose_two, funcs)
+    return reduce(compose_two, funcs)
 
 
 def print_yielded(
@@ -241,6 +241,136 @@ def print_yielded(
         2
         3
     """
-    print_all = functools.partial(map, print)
+    print_all = partial(map, print)
     print_res = _compose(_consume, print_all, func)
-    return functools.wraps(func)(print_res)
+    return wraps(func)(print_res)
+
+
+
+def memoize(func: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Cache the results of ``func`` keyed by positional and keyword arguments.
+
+    Each unique ``(args, kwargs)`` invocation is computed at most once;
+    subsequent calls with the same arguments return the previously
+    cached value. Unlike :func:`functools.lru_cache`, this cache is
+    unbounded and never evicts entries -- arguments must therefore be
+    hashable.
+
+    The original callable's metadata (``__name__``, ``__doc__``, etc.)
+    is preserved via :func:`functools.wraps`.
+
+    Args:
+        func: The callable to cache. All of its arguments must be
+            hashable.
+
+    Returns:
+        A wrapper with the same signature as ``func`` whose results
+            are memoized.
+
+    Examples:
+        >>> @memoize
+        ... def square(n):
+        ...     return n * n
+        >>> square(4)
+        16
+        >>> square(4)
+        16
+    """
+    cache: dict[tuple[Any, frozenset[tuple[str, Any]]], _R] = {}
+
+    @wraps(func)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        key = (args, frozenset(kwargs.items()))
+        if key not in cache:
+            cache[key] = func(*args, **kwargs)
+        return cache[key]
+
+    wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
+    wrapper.cache_info = lambda: {"size": len(cache)}  # type: ignore[attr-defined]
+    return wrapper  # type: ignore[return-value]
+
+
+def tap(side_effect: Callable[..., Any] = print) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
+    """Decorate a callable to invoke ``side_effect`` on each call's result and args.
+
+    The wrapper invokes ``func(*args, **kwargs)`` normally, then calls
+    ``side_effect(result, *args, **kwargs)`` -- passing the result as
+    the first positional argument followed by the original arguments.
+    The original return value of ``func`` is forwarded unchanged. This
+    is useful for logging, tracing, or otherwise "tapping into" a call
+    without modifying its behavior.
+
+    By default the side effect is the built-in :func:`print`, which
+    prints the result followed by the arguments; supply any callable
+    accepting ``(result, *args, **kwargs)`` to customize.
+
+    Args:
+        side_effect: A callable invoked as
+            ``side_effect(result, *args, **kwargs)`` after each
+            successful call to ``func``. Defaults to :func:`print`.
+
+    Returns:
+        A decorator that wraps ``func`` and forwards its return value
+            unchanged.
+
+    Examples:
+        >>> @tap()
+        ... def add(a, b):
+        ...     return a + b
+        >>> add(2, 3)  # doctest: +SKIP
+        5 2 3
+    """
+    def decorator(func: Callable[_P, _R]) -> Callable[_P, _R]:
+        @wraps(func)
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+            result = func(*args, **kwargs)
+            side_effect(result, *args, **kwargs)
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+def run_sync(
+    coro_func: Callable[_P, Any],
+) -> Callable[_P, Any]:
+    """Wrap an async (coroutine) callable so it can be called synchronously.
+
+    Each call to the returned wrapper opens a fresh event loop, runs
+    ``coro_func(*args, **kwargs)`` to completion on it, then closes
+    the loop and returns the coroutine's result.
+
+    This is intended for one-shot use from synchronous code -- for
+    example, invoking an ``async def`` from a CLI, a unit test, or a
+    REPL. It must not be called from within an already-running event
+    loop; for that, schedule the coroutine directly with
+    :func:`asyncio.ensure_future` instead.
+
+    The wrapped coroutine function's metadata is preserved via
+    :func:`functools.wraps`.
+
+    Args:
+        coro_func: An ``async def`` callable (or any callable returning
+            an awaitable).
+
+    Returns:
+        A synchronous wrapper with the same signature as
+            ``coro_func``.
+
+    Examples:
+        >>> async def fetch():
+        ...     return 42
+        >>> blocking_fetch = run_sync(fetch)
+        >>> blocking_fetch()
+        42
+    """
+    @wraps(coro_func)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro_func(*args, **kwargs))
+        finally:
+            loop.close()
+
+    return wrapper

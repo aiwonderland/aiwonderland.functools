@@ -1,11 +1,14 @@
 import pytest
 
-from aiwonderland.functools import (__version__, 
-                                    once, 
-                                    pass_param, 
-                                    pipe, 
-                                    print_yielded, 
-                                    silent)
+from aiwonderland.functools import (__version__,
+                                    memoize,
+                                    once,
+                                    pass_param,
+                                    pipe,
+                                    print_yielded,
+                                    run_sync,
+                                    silent,
+                                    tap)
 
 
 def test_once_executes_function_exactly_once():
@@ -351,6 +354,237 @@ def test_print_yielded_works_with_non_generator_iterables(capsys):
     assert out == "10\n20\n30\n"
 
 
+def test_print_yielded_drives_side_effects_of_generator(capsys):
+    @print_yielded
+    def side_effect_gen():
+        print("before")
+        yield "middle"
+        print("after")
+
+    side_effect_gen()
+    out, _ = capsys.readouterr()
+    assert out == "before\nmiddle\nafter\n"
+def test_memoize_caches_result_by_args():
+    calls = []
+
+    @memoize
+    def add(a, b):
+        calls.append((a, b))
+        return a + b
+
+    assert add(1, 2) == 3
+    assert add(1, 2) == 3
+    assert add(1, 3) == 4
+    assert calls == [(1, 2), (1, 3)]
+
+
+def test_memoize_caches_separately_for_positional_and_keyword():
+    calls = []
+
+    @memoize
+    def f(x):
+        calls.append(x)
+        return x
+
+    assert f(1) == 1
+    assert f(x=1) == 1
+    assert calls == [1, 1]
+
+
+def test_memoize_state_is_per_wrapper():
+    calls_a = []
+    calls_b = []
+
+    @memoize
+    def inc(x):
+        calls_a.append(x)
+        return x + 1
+
+    @memoize
+    def dec(x):
+        calls_b.append(x)
+        return x - 1
+
+    assert inc(5) == 6
+    assert dec(5) == 4
+    assert inc(5) == 6
+    assert dec(5) == 4
+    assert calls_a == [5]
+    assert calls_b == [5]
+
+
+def test_memoize_cache_clear_empties_cache():
+    calls = []
+
+    @memoize
+    def f(x):
+        calls.append(x)
+        return x * 2
+
+    assert f(3) == 6
+    assert f(3) == 6
+    assert calls == [3]
+    f.cache_clear()
+    assert f(3) == 6
+    assert calls == [3, 3]
+
+
+def test_memoize_cache_info_reports_size():
+    @memoize
+    def f(x):
+        return x
+
+    assert f.cache_info() == {"size": 0}
+    f(1)
+    f(2)
+    f(1)
+    assert f.cache_info() == {"size": 2}
+
+
+def test_memoize_preserves_function_metadata():
+    @memoize
+    def original(x):
+        """original docstring"""
+        return x
+
+    assert original.__name__ == "original"
+    assert original.__doc__ == "original docstring"
+
+
+def test_tap_returns_original_value_and_invokes_side_effect(capsys):
+    @tap()
+    def add(a, b):
+        return a + b
+
+    assert add(2, 3) == 5
+    out, _ = capsys.readouterr()
+    assert "2" in out and "3" in out and "5" in out
+
+
+def test_tap_with_custom_side_effect():
+    seen = []
+
+    @tap(side_effect=lambda result, *args, **kwargs: seen.append((result, args, kwargs)))
+    def add(a, b):
+        return a + b
+
+    assert add(2, 3) == 5
+    assert seen == [(5, (2, 3), {})]
+
+
+def test_tap_does_not_swallow_exception_from_func():
+    @tap()
+    def boom():
+        raise RuntimeError("kaboom")
+
+    with pytest.raises(RuntimeError):
+        boom()
+
+
+def test_tap_passes_keyword_arguments_through():
+    seen = []
+
+    @tap(side_effect=lambda result, *args, **kwargs: seen.append((result, args, kwargs)))
+    def f(*, x, y):
+        return x + y
+
+    assert f(x=1, y=2) == 3
+    assert seen == [(3, (), {"x": 1, "y": 2})]
+
+
+def test_tap_side_effect_called_with_every_call():
+    counter = []
+
+    def record(result, *args, **kwargs):
+        counter.append(result)
+
+    @tap(side_effect=record)
+    def f(x):
+        return x * 10
+
+    f(1)
+    f(2)
+    f(3)
+    assert counter == [10, 20, 30]
+
+
+def test_tap_preserves_function_metadata():
+    @tap()
+    def original(x):
+        """original docstring"""
+        return x
+
+    assert original.__name__ == "original"
+    assert original.__doc__ == "original docstring"
+
+
+def test_run_sync_returns_coroutine_result():
+    async def coro():
+        return 42
+
+    blocking = run_sync(coro)
+    assert blocking() == 42
+
+
+def test_run_sync_passes_args_to_coroutine():
+    async def coro(a, b):
+        return a + b
+
+    blocking = run_sync(coro)
+    assert blocking(2, 3) == 5
+
+
+def test_run_sync_passes_keyword_arguments():
+    async def coro(*, x, y):
+        return x * y
+
+    blocking = run_sync(coro)
+    assert blocking(x=4, y=5) == 20
+
+
+def test_run_sync_awaits_async_with_await():
+    import asyncio
+
+    async def inner():
+        await asyncio.sleep(0)
+        return "done"
+
+    blocking = run_sync(inner)
+    assert blocking() == "done"
+
+
+def test_run_sync_preserves_function_metadata():
+    async def original():
+        """original docstring"""
+
+    blocking = run_sync(original)
+    assert blocking.__name__ == "original"
+    assert blocking.__doc__ == "original docstring"
+
+
+def test_run_sync_each_call_uses_fresh_event_loop():
+    import asyncio
+    seen = []
+
+    async def coro():
+        seen.append(asyncio.get_running_loop())
+        return None
+
+    blocking = run_sync(coro)
+    blocking()
+    blocking()
+    assert len(seen) == 2
+    assert seen[0] is not seen[1]
+    assert seen[0].is_closed()
+    assert seen[1].is_closed()
+
+
+def test_run_sync_works_with_async_returning_list():
+    async def coro():
+        return [1, 2, 3]
+
+    blocking = run_sync(coro)
+    assert blocking() == [1, 2, 3]
 def test_print_yielded_drives_side_effects_of_generator(capsys):
     @print_yielded
     def side_effect_gen():
